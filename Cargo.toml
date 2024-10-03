@@ -1,6 +1,6 @@
 [package]
 name = "yellowstone-grpc-kafka"
-version = "1.0.0"
+version = "1.0.0+solana.1.18.23"
 authors = ["Triton One"]
 edition = "2021"
 homepage = "https://triton.one"
@@ -35,6 +35,9 @@ tracing = { version = "0.1.37", optional = true }
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 yellowstone-grpc-client = { version = "1.15.4", optional = true }
 yellowstone-grpc-proto = "1.14.2"
+solana-account-decoder = "=1.18.23"
+solana-transaction-status = "=1.18.23"
+solana-sdk = "=1.18.23"
 
 [target.'cfg(not(all(target_os = "macos", target_arch = "aarch64")))'.dependencies]
 rdkafka = { version = "0.34.0", features = ["sasl", "ssl"], optional = true }
