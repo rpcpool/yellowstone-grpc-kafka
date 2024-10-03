@@ -1,0 +1,10 @@
+/.idea
+/.vscode
+/__pycache__
+/target
+/test-ledger
+/venv
+
+config-test.json
+dump.rdb
+*.sw?
