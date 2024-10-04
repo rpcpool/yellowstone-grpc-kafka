@@ -16,6 +16,10 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## [2.0.0] - 2024-10-04
+
+- Bump solana to to `2.0`.
+
 ## [1.0.0] - 2024-10-03
 
 - Init. Moved from https://github.com/rpcpool/yellowstone-grpc.

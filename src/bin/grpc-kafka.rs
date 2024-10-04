@@ -145,7 +145,7 @@ impl ArgsAction {
                 (Some(key), Some(payload)) => (key, payload.to_vec()),
                 _ => continue,
             };
-            let (slot, hash, bytes) = match key
+            let Some((slot, hash, bytes)) = key
                 .split_once('_')
                 .and_then(|(slot, hash)| slot.parse::<u64>().ok().map(|slot| (slot, hash)))
                 .and_then(|(slot, hash)| {
@@ -153,9 +153,9 @@ impl ArgsAction {
                     const_hex::decode_to_slice(hash, &mut bytes)
                         .ok()
                         .map(|()| (slot, hash, bytes))
-                }) {
-                Some((slot, hash, bytes)) => (slot, hash, bytes),
-                _ => continue,
+                })
+            else {
+                continue;
             };
             debug!("received message slot #{slot} with hash {hash}");
 
@@ -396,7 +396,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Run prometheus server
     if let Some(address) = args.prometheus.or(config.prometheus) {
-        prometheus_run_server(address)?;
+        prometheus_run_server(address).await?;
     }
 
     // Create kafka config
