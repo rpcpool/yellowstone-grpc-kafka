@@ -6,6 +6,7 @@ use {
     sha2::{Digest, Sha256},
     std::{net::SocketAddr, sync::Arc, time::Duration},
     tokio::task::JoinSet,
+    tonic::transport::ClientTlsConfig,
     tracing::{debug, trace, warn},
     yellowstone_grpc_client::GeyserGrpcClient,
     yellowstone_grpc_kafka::{
@@ -231,6 +232,7 @@ impl ArgsAction {
             .x_token(config.x_token)?
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(5))
+            .tls_config(ClientTlsConfig::new().with_native_roots())?
             .connect()
             .await?;
         let mut geyser = client.subscribe_once(config.request.to_proto()).await?;

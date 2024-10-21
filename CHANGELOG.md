@@ -16,6 +16,12 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## [2.0.1] - 2024-10-21
+
+### Fixes
+
+- use TlsConfig with native roots ([#1](https://github.com/rpcpool/yellowstone-grpc-kafka/pull/1))
+
 ## [2.0.0] - 2024-10-04
 
 - Bump solana to to `2.0`.
