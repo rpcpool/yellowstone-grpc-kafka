@@ -9,6 +9,7 @@ on:
       - 'master'
       - 'v1.18'
       - 'v2.0'
+      - 'v2.1'
   workflow_dispatch:
 
 env:

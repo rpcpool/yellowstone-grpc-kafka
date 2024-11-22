@@ -9,11 +9,13 @@ use {
     tokio::fs,
     yellowstone_grpc_proto::prelude::{
         subscribe_request_filter_accounts_filter::Filter as AccountsFilterDataOneof,
+        subscribe_request_filter_accounts_filter_lamports::Cmp as AccountsFilterLamports,
         subscribe_request_filter_accounts_filter_memcmp::Data as AccountsFilterMemcmpOneof,
         CommitmentLevel, SubscribeRequest, SubscribeRequestAccountsDataSlice,
         SubscribeRequestFilterAccounts, SubscribeRequestFilterAccountsFilter,
-        SubscribeRequestFilterAccountsFilterMemcmp, SubscribeRequestFilterBlocks,
-        SubscribeRequestFilterSlots, SubscribeRequestFilterTransactions,
+        SubscribeRequestFilterAccountsFilterLamports, SubscribeRequestFilterAccountsFilterMemcmp,
+        SubscribeRequestFilterBlocks, SubscribeRequestFilterSlots,
+        SubscribeRequestFilterTransactions,
     },
 };
 
@@ -103,6 +105,7 @@ pub struct ConfigGrpcRequestAccounts {
     account: Vec<String>,
     owner: Vec<String>,
     filters: Vec<ConfigGrpcRequestAccountsFilter>,
+    nonempty_txn_signature: Option<bool>,
 }
 
 impl GrpcRequestToProto<SubscribeRequestFilterAccounts> for ConfigGrpcRequestAccounts {
@@ -111,6 +114,7 @@ impl GrpcRequestToProto<SubscribeRequestFilterAccounts> for ConfigGrpcRequestAcc
             account: self.account,
             owner: self.owner,
             filters: self.filters.into_iter().map(|f| f.to_proto()).collect(),
+            nonempty_txn_signature: self.nonempty_txn_signature,
         }
     }
 }
@@ -120,6 +124,7 @@ pub enum ConfigGrpcRequestAccountsFilter {
     Memcmp { offset: u64, base58: String },
     DataSize(u64),
     TokenAccountState,
+    Lamports(ConfigGrpcRequestAccountsFilterLamports),
 }
 
 impl GrpcRequestToProto<SubscribeRequestFilterAccountsFilter> for ConfigGrpcRequestAccountsFilter {
@@ -138,9 +143,37 @@ impl GrpcRequestToProto<SubscribeRequestFilterAccountsFilter> for ConfigGrpcRequ
                 ConfigGrpcRequestAccountsFilter::TokenAccountState => {
                     AccountsFilterDataOneof::TokenAccountState(true)
                 }
+                ConfigGrpcRequestAccountsFilter::Lamports(lamports) => {
+                    AccountsFilterDataOneof::Lamports(
+                        SubscribeRequestFilterAccountsFilterLamports {
+                            cmp: Some(match lamports {
+                                ConfigGrpcRequestAccountsFilterLamports::Eq(value) => {
+                                    AccountsFilterLamports::Eq(value)
+                                }
+                                ConfigGrpcRequestAccountsFilterLamports::Ne(value) => {
+                                    AccountsFilterLamports::Ne(value)
+                                }
+                                ConfigGrpcRequestAccountsFilterLamports::Lt(value) => {
+                                    AccountsFilterLamports::Lt(value)
+                                }
+                                ConfigGrpcRequestAccountsFilterLamports::Gt(value) => {
+                                    AccountsFilterLamports::Gt(value)
+                                }
+                            }),
+                        },
+                    )
+                }
             }),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub enum ConfigGrpcRequestAccountsFilterLamports {
+    Eq(u64),
+    Ne(u64),
+    Lt(u64),
+    Gt(u64),
 }
 
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
