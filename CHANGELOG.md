@@ -16,6 +16,12 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## [3.0.0] - 2024-11-22
+
+### Features
+
+- solana: upgrade to v2.1 ([#2](https://github.com/rpcpool/yellowstone-grpc-kafka/pull/2))
+
 ## [2.0.1] - 2024-10-21
 
 ### Fixes
