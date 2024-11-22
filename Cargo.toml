@@ -1,6 +1,6 @@
 [package]
 name = "yellowstone-grpc-kafka"
-version = "3.0.0"
+version = "3.0.0+solana.2.1.1"
 authors = ["Triton One"]
 edition = "2021"
 homepage = "https://triton.one"
@@ -14,6 +14,7 @@ name = "grpc-kafka"
 required-features = ["kafka"]
 
 [dependencies]
+solana-sdk = "=2.1.1"
 anyhow = "1.0.62"
 async-trait = { version = "0.1.73", optional = true }
 clap = { version = "4.3.0", features = ["derive"], optional = true }

@@ -5352,7 +5352,7 @@ dependencies = [
 
 [[package]]
 name = "yellowstone-grpc-kafka"
-version = "3.0.0"
+version = "3.0.0+solana.2.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5373,6 +5373,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2 0.10.8",
+ "solana-sdk",
  "tokio",
  "tokio-stream",
  "tonic",
