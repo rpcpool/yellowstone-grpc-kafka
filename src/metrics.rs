@@ -24,7 +24,7 @@ lazy_static::lazy_static! {
 
     static ref VERSION: IntCounterVec = IntCounterVec::new(
         Opts::new("version", "Plugin version info"),
-        &["buildts", "git", "package", "proto", "rustc", "solana", "version"]
+        &["buildts", "package", "proto", "rustc", "solana", "version"]
     ).unwrap();
 }
 
@@ -51,7 +51,6 @@ pub async fn run_server(address: SocketAddr) -> anyhow::Result<()> {
         VERSION
             .with_label_values(&[
                 VERSION_INFO.buildts,
-                VERSION_INFO.git,
                 VERSION_INFO.package,
                 VERSION_INFO.proto,
                 VERSION_INFO.rustc,
