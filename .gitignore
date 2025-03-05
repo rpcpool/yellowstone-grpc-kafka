@@ -8,3 +8,5 @@
 config-test.json
 dump.rdb
 *.sw?
+
+ping.txt
