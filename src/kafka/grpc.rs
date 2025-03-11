@@ -7,6 +7,7 @@ use {
             atomic::{AtomicUsize, Ordering},
             Arc,
         },
+        time::SystemTime,
     },
     tokio::{
         sync::{broadcast, mpsc, Notify},
@@ -118,16 +119,17 @@ impl Geyser for GrpcService {
             let exit = ping_exit.notified();
             tokio::pin!(exit);
 
-            let ping_msg = SubscribeUpdate {
-                filters: vec![],
-                update_oneof: Some(UpdateOneof::Ping(SubscribeUpdatePing {})),
-            };
-
             loop {
                 tokio::select! {
                     _ = &mut exit => break,
                     _ = sleep(Duration::from_secs(10)) => {
-                        match ping_stream_tx.try_send(Ok(ping_msg.clone())) {
+                        let ping_msg = SubscribeUpdate {
+                            filters: vec![],
+                            update_oneof: Some(UpdateOneof::Ping(SubscribeUpdatePing {})),
+                            created_at: Some(SystemTime::now().into()),
+                        };
+
+                        match ping_stream_tx.try_send(Ok(ping_msg)) {
                             Ok(()) => {}
                             Err(mpsc::error::TrySendError::Full(_)) => {}
                             Err(mpsc::error::TrySendError::Closed(_)) => {

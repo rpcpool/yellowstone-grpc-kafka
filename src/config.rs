@@ -52,6 +52,7 @@ pub struct ConfigGrpcRequest {
     pub blocks_meta: HashSet<String>,
     pub commitment: Option<ConfigGrpcRequestCommitment>,
     pub accounts_data_slice: Vec<ConfigGrpcRequestAccountsDataSlice>,
+    pub from_slot: Option<u64>,
 }
 
 impl ConfigGrpcRequest {
@@ -81,6 +82,7 @@ impl GrpcRequestToProto<SubscribeRequest> for ConfigGrpcRequest {
             commitment: self.commitment.map(|v| v.to_proto() as i32),
             accounts_data_slice: ConfigGrpcRequest::vec_to_proto(self.accounts_data_slice),
             ping: None,
+            from_slot: self.from_slot,
         }
     }
 }
@@ -89,12 +91,14 @@ impl GrpcRequestToProto<SubscribeRequest> for ConfigGrpcRequest {
 #[serde(default)]
 pub struct ConfigGrpcRequestSlots {
     filter_by_commitment: Option<bool>,
+    interslot_updates: Option<bool>,
 }
 
 impl GrpcRequestToProto<SubscribeRequestFilterSlots> for ConfigGrpcRequestSlots {
     fn to_proto(self) -> SubscribeRequestFilterSlots {
         SubscribeRequestFilterSlots {
             filter_by_commitment: self.filter_by_commitment,
+            interslot_updates: self.interslot_updates,
         }
     }
 }
