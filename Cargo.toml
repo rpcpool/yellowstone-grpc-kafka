@@ -3,11 +3,11 @@ name = "yellowstone-grpc-kafka"
 version = "3.0.0"
 authors = ["Triton One"]
 edition = "2021"
+description = "Yellowstone gRPC config/request transformers"
 homepage = "https://triton.one"
 repository = "https://github.com/rpcpool/yellowstone-grpc-kafka"
 license = "AGPL-3.0"
 keywords = ["solana"]
-publish = false
 
 [[bin]]
 name = "grpc-kafka"
