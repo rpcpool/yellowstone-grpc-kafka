@@ -29,8 +29,4 @@ ignore = [
     # protobuf 2.28.0
     # Advisory: https://rustsec.org/advisories/RUSTSEC-2024-0437
     "RUSTSEC-2024-0437",
-
-    # humantime 2.1.0
-    # Advisory: https://rustsec.org/advisories/RUSTSEC-2025-0014
-    "RUSTSEC-2025-0014",
 ]
