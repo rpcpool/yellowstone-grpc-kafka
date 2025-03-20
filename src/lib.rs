@@ -1,4 +1,5 @@
 pub mod config;
+pub mod env;
 pub mod health;
 #[cfg(feature = "kafka")]
 pub mod kafka;
