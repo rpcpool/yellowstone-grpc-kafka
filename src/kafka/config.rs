@@ -13,6 +13,7 @@ pub struct Config {
     pub dedup: Option<ConfigDedup>,
     pub grpc2kafka: Option<ConfigGrpc2Kafka>,
     pub kafka2grpc: Option<ConfigKafka2Grpc>,
+    pub wss2kafka: Option<ConfigWss2Kafka>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -77,5 +78,26 @@ pub struct ConfigKafka2Grpc {
 impl ConfigKafka2Grpc {
     const fn channel_capacity_default() -> usize {
         250_000
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ConfigWss2Kafka {
+    pub endpoint: String,
+    pub x_token: Option<String>,
+    pub request: String,
+    #[serde(default)]
+    pub kafka: HashMap<String, String>,
+    pub kafka_topic: String,
+    #[serde(
+        default = "ConfigWss2Kafka::default_kafka_queue_size",
+        deserialize_with = "deserialize_usize_str"
+    )]
+    pub kafka_queue_size: usize,
+}
+
+impl ConfigWss2Kafka {
+    const fn default_kafka_queue_size() -> usize {
+        10_000
     }
 }

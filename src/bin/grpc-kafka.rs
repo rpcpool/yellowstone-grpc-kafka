@@ -1,21 +1,22 @@
 use {
     anyhow::Context,
     clap::{Parser, Subcommand},
-    futures::{future::BoxFuture, stream::StreamExt},
+    futures::{future::BoxFuture, stream::StreamExt, SinkExt},
     rdkafka::{config::ClientConfig, consumer::Consumer, message::Message, producer::FutureRecord},
     sha2::{Digest, Sha256},
     std::{net::SocketAddr, sync::Arc, time::Duration},
     tokio::task::JoinSet,
+    tokio_tungstenite::{connect_async, tungstenite::protocol::Message as TokioMessage},
     tonic::transport::ClientTlsConfig,
     tracing::{debug, trace, warn},
     yellowstone_grpc_client::GeyserGrpcClient,
     yellowstone_grpc_kafka::{
         config::GrpcRequestToProto,
         create_shutdown,
-        env::load_grpc2kafka_config,
+        env::{load_grpc2kafka_config, load_wss2kafka_config},
         health::{ack_ping, ack_pong},
         kafka::{
-            config::{Config, ConfigDedup, ConfigGrpc2Kafka, ConfigKafka2Grpc},
+            config::{Config, ConfigDedup, ConfigGrpc2Kafka, ConfigKafka2Grpc, ConfigWss2Kafka},
             dedup::KafkaDedup,
             grpc::GrpcService,
             metrics,
@@ -54,6 +55,9 @@ enum ArgsAction {
     /// Receive data from Kafka and send them over gRPC
     #[command(name = "kafka2grpc")]
     Kafka2Grpc,
+    /// Receive data from websocket and send them to the Kafka
+    #[command(name = "wss2kafka")]
+    Wss2Kafka,
 }
 
 impl ArgsAction {
@@ -62,6 +66,7 @@ impl ArgsAction {
             ArgsAction::Dedup => Err(anyhow::anyhow!("`dedup` env is not supported")),
             ArgsAction::Grpc2Kafka => load_grpc2kafka_config(),
             ArgsAction::Kafka2Grpc => Err(anyhow::anyhow!("`kafka2grpc` env is not supported")),
+            ArgsAction::Wss2Kafka => load_wss2kafka_config(),
         }
     }
 
@@ -85,6 +90,12 @@ impl ArgsAction {
                     anyhow::anyhow!("`kafka2grpc` section in config should be defined")
                 })?;
                 Self::kafka2grpc(kafka_config, config, shutdown).await
+            }
+            ArgsAction::Wss2Kafka => {
+                let config = config.wss2kafka.ok_or_else(|| {
+                    anyhow::anyhow!("`wss2kafka` section in config should be defined")
+                })?;
+                Self::wss2kafka(kafka_config, config, shutdown).await
             }
         }
     }
@@ -401,6 +412,121 @@ impl ArgsAction {
             warn!("shutdown received...");
         }
         Ok(grpc_shutdown.await??)
+    }
+
+    async fn wss2kafka(
+        kafka_config: ClientConfig,
+        config: ConfigWss2Kafka,
+        mut shutdown: BoxFuture<'static, ()>,
+    ) -> anyhow::Result<()> {
+        // Connect to kafka
+        let (kafka, kafka_error_rx) = metrics::StatsContext::create_future_producer(&kafka_config)
+            .context("failed to create kafka producer")?;
+        let mut kafka_error = false;
+        tokio::pin!(kafka_error_rx);
+
+        // Connect to websocket
+        let (ws_stream, _response) = connect_async(&config.endpoint).await?;
+        let (mut write_sink, mut read_stream) = ws_stream.split();
+
+        // Subscribe to events
+        write_sink.send(TokioMessage::text(config.request)).await?;
+
+        // Receive-send loop
+        let mut send_tasks = JoinSet::new();
+        loop {
+            let message = tokio::select! {
+                _ = &mut shutdown => break,
+                _ = &mut kafka_error_rx => {
+                    kafka_error = true;
+                    break;
+                }
+                maybe_result = send_tasks.join_next() => match maybe_result {
+                    Some(result) => {
+                        result??;
+                        continue;
+                    }
+                    None => tokio::select! {
+                        _ = &mut shutdown => break,
+                        _ = &mut kafka_error_rx => {
+                            kafka_error = true;
+                            break;
+                        }
+                        message = read_stream.next() => message,
+                    }
+                },
+                message = read_stream.next() => message,
+            }
+            .transpose()?;
+
+            match message {
+                Some(message) => {
+                    if message.is_close() {
+                        break;
+                    }
+                    if message.is_ping() {
+                        tokio::spawn(ack_ping());
+                        continue;
+                    }
+                    if message.is_pong() {
+                        tokio::spawn(ack_pong());
+                        continue;
+                    }
+                    if !message.is_text() {
+                        continue;
+                    }
+                    let payload = message.to_string();
+                    let hash = Sha256::digest(&payload);
+                    let key = const_hex::encode(hash);
+
+                    let record = FutureRecord::to(&config.kafka_topic)
+                        .key(&key)
+                        .payload(&payload);
+
+                    match kafka.send_result(record) {
+                        Ok(future) => {
+                            let _ = send_tasks.spawn(async move {
+                                let result = future.await;
+                                debug!("kafka send message with key: {key}, result: {result:?}");
+
+                                let _ = result?.map_err(|(error, _message)| error)?;
+                                metrics::sent_inc(GprcMessageKind::Unknown);
+                                Ok::<(), anyhow::Error>(())
+                            });
+                            if send_tasks.len() >= config.kafka_queue_size {
+                                tokio::select! {
+                                    _ = &mut shutdown => break,
+                                    _ = &mut kafka_error_rx => {
+                                        kafka_error = true;
+                                        break;
+                                    }
+                                    result = send_tasks.join_next() => {
+                                        if let Some(result) = result {
+                                            result??;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Err(error) => return Err(error.0.into()),
+                    }
+                }
+                None => break,
+            }
+        }
+        if !kafka_error {
+            warn!("shutdown received...");
+            loop {
+                tokio::select! {
+                    _ = &mut kafka_error_rx => break,
+                    result = send_tasks.join_next() => match result {
+                        Some(result) => result??,
+                        None => break
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }
 

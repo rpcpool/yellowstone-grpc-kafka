@@ -1,7 +1,7 @@
 use {
     crate::{
         config::ConfigGrpcRequest,
-        kafka::config::{Config, ConfigGrpc2Kafka},
+        kafka::config::{Config, ConfigGrpc2Kafka, ConfigWss2Kafka},
     },
     anyhow::Context,
     serde::de,
@@ -15,6 +15,19 @@ pub fn load_grpc2kafka_config() -> anyhow::Result<Config> {
         dedup: None,
         grpc2kafka: Some(build_grpc2kafka()?),
         kafka2grpc: None,
+        wss2kafka: None,
+    };
+    Ok(config)
+}
+
+pub fn load_wss2kafka_config() -> anyhow::Result<Config> {
+    let config = Config {
+        prometheus: build_prometheus_address()?,
+        kafka: build_kafka()?,
+        dedup: None,
+        grpc2kafka: None,
+        kafka2grpc: None,
+        wss2kafka: Some(build_wss2kafka()?),
     };
     Ok(config)
 }
@@ -65,6 +78,17 @@ fn build_grpc2kafka() -> anyhow::Result<ConfigGrpc2Kafka> {
         endpoint: required_env_value("REQUEST_ENDPOINT")?,
         x_token: Some(required_secret("REQUEST_X_TOKEN")?),
         request: deserialize_request::<ConfigGrpcRequest>(required_env_value("REQUEST_BODY")?)?,
+        kafka: HashMap::new(),
+        kafka_topic: required_env_value("KAFKA_TOPIC")?,
+        kafka_queue_size: required_env_value("KAFKA_QUEUE_SIZE")?.parse()?,
+    })
+}
+
+fn build_wss2kafka() -> anyhow::Result<ConfigWss2Kafka> {
+    Ok(ConfigWss2Kafka {
+        endpoint: required_secret("REQUEST_ENDPOINT")?,
+        x_token: None,
+        request: required_env_value("REQUEST_BODY")?,
         kafka: HashMap::new(),
         kafka_topic: required_env_value("KAFKA_TOPIC")?,
         kafka_queue_size: required_env_value("KAFKA_QUEUE_SIZE")?.parse()?,
