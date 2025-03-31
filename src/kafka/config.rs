@@ -94,6 +94,7 @@ pub struct ConfigWss2Kafka {
         deserialize_with = "deserialize_usize_str"
     )]
     pub kafka_queue_size: usize,
+    pub provider: String,
 }
 
 impl ConfigWss2Kafka {

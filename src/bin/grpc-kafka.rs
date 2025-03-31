@@ -20,6 +20,7 @@ use {
             dedup::KafkaDedup,
             grpc::GrpcService,
             metrics,
+            wss::WssEvent,
         },
         metrics::{run_server as prometheus_run_server, GprcMessageKind},
         setup_tracing,
@@ -475,7 +476,7 @@ impl ArgsAction {
                     if !message.is_text() {
                         continue;
                     }
-                    let payload = message.to_string();
+                    let payload = WssEvent::new(message.to_string(), &config.provider).to_string();
                     let hash = Sha256::digest(&payload);
                     let key = const_hex::encode(hash);
 
