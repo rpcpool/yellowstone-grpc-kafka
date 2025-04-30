@@ -466,6 +466,7 @@ impl ArgsAction {
                         break;
                     }
                     if message.is_ping() {
+                        write_sink.send(TokioMessage::Pong(message.into())).await?;
                         tokio::spawn(ack_ping());
                         continue;
                     }
