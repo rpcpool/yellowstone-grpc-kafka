@@ -4,7 +4,7 @@ use {
     futures::{future::BoxFuture, stream::StreamExt, SinkExt},
     rdkafka::{config::ClientConfig, consumer::Consumer, message::Message, producer::FutureRecord},
     sha2::{Digest, Sha256},
-    std::{net::SocketAddr, sync::Arc, time::Duration},
+    std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration},
     tokio::task::JoinSet,
     tokio_tungstenite::{connect_async, tungstenite::protocol::Message as TokioMessage},
     tonic::transport::ClientTlsConfig,
@@ -30,6 +30,20 @@ use {
         prost::Message as _,
     },
 };
+
+// Helper function to extract slot from UpdateOneof
+fn extract_slot_from_update(update_oneof: &UpdateOneof) -> Option<u64> {
+    match update_oneof {
+        UpdateOneof::Account(msg) => Some(msg.slot),
+        UpdateOneof::Slot(msg) => Some(msg.slot),
+        UpdateOneof::Transaction(msg) => Some(msg.slot),
+        UpdateOneof::TransactionStatus(msg) => Some(msg.slot),
+        UpdateOneof::Block(msg) => Some(msg.slot),
+        UpdateOneof::BlockMeta(msg) => Some(msg.slot),
+        UpdateOneof::Entry(msg) => Some(msg.slot),
+        UpdateOneof::Ping(_) | UpdateOneof::Pong(_) => None,
+    }
+}
 
 #[derive(Debug, Clone, Parser)]
 #[clap(author, version, about = "Yellowstone gRPC Kafka Tool")]
@@ -153,6 +167,8 @@ impl ArgsAction {
                 },
                 message = consumer.recv() => message,
             }?;
+            
+            let dedup_receive_time = metrics::get_current_timestamp_secs();
             metrics::recv_inc();
             trace!(
                 "received message with key: {:?}",
@@ -168,6 +184,10 @@ impl ArgsAction {
                 (Some(key), Some(payload)) => (key, payload.to_vec()),
                 _ => continue,
             };
+            
+            // Record message size for dedup
+            metrics::record_message_size(payload.len());
+            
             let Some((slot, hash, bytes)) = key
                 .split_once('_')
                 .and_then(|(slot, hash)| slot.parse::<u64>().ok().map(|slot| (slot, hash)))
@@ -181,29 +201,57 @@ impl ArgsAction {
                 continue;
             };
             debug!("received message slot #{slot} with hash {hash}");
+            
+            // Track latest processed slot for dedup
+            metrics::set_latest_processed_slot("dedup", "all", slot);
 
             let kafka = kafka.clone();
             let dedup = dedup.clone();
             let kafka_output = Arc::clone(&kafka_output);
             send_tasks.spawn(async move {
-                if dedup.allowed(slot, bytes).await {
+                let dedup_check_start = metrics::get_current_timestamp_secs();
+                let is_allowed = dedup.allowed(slot, bytes).await;
+                let dedup_check_end = metrics::get_current_timestamp_secs();
+                
+                // Record deduplication check latency
+                let dedup_latency = dedup_check_end - dedup_check_start;
+                metrics::record_message_processing_latency(dedup_latency);
+                
+                if is_allowed {
                     let record = FutureRecord::to(&kafka_output).key(&key).payload(&payload);
                     match kafka.send_result(record) {
                         Ok(future) => {
+                            let kafka_produce_start = metrics::get_current_timestamp_secs();
                             let result = future.await;
+                            let kafka_produce_end = metrics::get_current_timestamp_secs();
+                            
                             debug!("kafka send message with key: {key}, result: {result:?}");
 
                             result?.map_err(|(error, _message)| error)?;
+                            
+                            // Record Kafka produce latency for dedup
+                            let produce_latency = kafka_produce_end - kafka_produce_start;
+                            metrics::record_kafka_produce_latency(produce_latency);
+                            
+                            // Record total dedup processing time
+                            let total_processing_time = kafka_produce_end - dedup_receive_time;
+                            metrics::record_end_to_end_latency(total_processing_time);
+                            
                             metrics::sent_inc(GprcMessageKind::Unknown);
                             Ok::<(), anyhow::Error>(())
                         }
                         Err(error) => Err(error.0.into()),
                     }
                 } else {
+                    // Message was deduplicated
                     metrics::dedup_inc();
-                    Ok(())
+                    Ok::<(), anyhow::Error>(())
                 }
             });
+            
+            // Update queue depth for dedup
+            metrics::set_kafka_queue_depth("dedup", send_tasks.len() as i64);
+            
             if send_tasks.len() >= config.kafka_queue_size {
                 tokio::select! {
                     _ = &mut shutdown => break,
@@ -217,6 +265,8 @@ impl ArgsAction {
                         }
                     }
                 }
+                // Update queue depth after processing
+                metrics::set_kafka_queue_depth("dedup", send_tasks.len() as i64);
             }
         }
         if !kafka_error {
@@ -225,7 +275,11 @@ impl ArgsAction {
                 tokio::select! {
                     _ = &mut kafka_error_rx => break,
                     result = send_tasks.join_next() => match result {
-                        Some(result) => result??,
+                        Some(result) => {
+                            result??;
+                            // Update queue depth after dedup task completion
+                            metrics::set_kafka_queue_depth("dedup", send_tasks.len() as i64);
+                        }
                         None => break
                     }
                 }
@@ -261,6 +315,10 @@ impl ArgsAction {
 
         // Receive-send loop
         let mut send_tasks = JoinSet::new();
+        
+        // Track latest slot for out-of-order detection
+        let mut latest_slot_by_type: HashMap<String, u64> = HashMap::new();
+        
         loop {
             let message = tokio::select! {
                 _ = &mut shutdown => break,
@@ -288,17 +346,20 @@ impl ArgsAction {
 
             match message {
                 Some(message) => {
+                    // Record when we received the message
+                    let receive_time = metrics::get_current_timestamp_secs();
+                    
                     let payload = message.encode_to_vec();
-                    let message = match &message.update_oneof {
+                    let message_inner = match &message.update_oneof {
                         Some(value) => value,
                         None => unreachable!("Expect valid message"),
                     };
-                    let slot = match message {
-                        UpdateOneof::Account(msg) => msg.slot,
-                        UpdateOneof::Slot(msg) => msg.slot,
-                        UpdateOneof::Transaction(msg) => msg.slot,
-                        UpdateOneof::TransactionStatus(msg) => msg.slot,
-                        UpdateOneof::Block(msg) => msg.slot,
+                    
+                    // Record message size
+                    metrics::record_message_size(payload.len());
+                    
+                    // Handle ping/pong messages separately
+                    match message_inner {
                         UpdateOneof::Ping(_) => {
                             tokio::spawn(ack_ping());
                             continue;
@@ -307,24 +368,80 @@ impl ArgsAction {
                             tokio::spawn(ack_pong());
                             continue;
                         }
-                        UpdateOneof::BlockMeta(msg) => msg.slot,
-                        UpdateOneof::Entry(msg) => msg.slot,
+                        _ => {}
+                    }
+                    
+                    let Some(slot) = extract_slot_from_update(message_inner) else {
+                        continue;
                     };
+                    
                     let hash = Sha256::digest(&payload);
                     let key = format!("{slot}_{}", const_hex::encode(hash));
-                    let prom_kind = GprcMessageKind::from(message);
+                    let prom_kind = GprcMessageKind::from(message_inner);
+                    let message_type = prom_kind.as_str();
+                    
+                    // Track slot timing and out-of-order detection
+                    if let Some(latest_slot) = latest_slot_by_type.get(message_type) {
+                        if slot < *latest_slot {
+                            metrics::inc_out_of_order_slots(message_type);
+                        }
+                    }
+                    latest_slot_by_type.insert(message_type.to_string(), slot.max(*latest_slot_by_type.get(message_type).unwrap_or(&0)));
+                    metrics::set_latest_processed_slot("grpc2kafka", message_type, slot);
+                    
+                    // Calculate latency from slot creation to receive time
+                    if let Some(created_at) = &message.created_at {
+                        let created_timestamp_secs = created_at.seconds as f64 + (created_at.nanos as f64 / 1_000_000_000.0);
+                        let slot_to_receive_latency = receive_time - created_timestamp_secs;
+                        
+                        // Only record positive latencies (sometimes clocks can be off)
+                        if slot_to_receive_latency > 0.0 {
+                            metrics::record_slot_to_receive_latency(slot_to_receive_latency);
+                        }
+                        
+                        // Record slot timing drift (for debugging clock synchronization issues)
+                        // This can be negative if our clock is ahead of the slot creation time
+                        metrics::record_slot_timing_drift(slot_to_receive_latency);
+                    }
 
                     let record = FutureRecord::to(&config.kafka_topic)
                         .key(&key)
                         .payload(&payload);
 
+                    // Record message processing time (from receive to kafka send)
+                    let kafka_send_time = metrics::get_current_timestamp_secs();
+                    let processing_latency = kafka_send_time - receive_time;
+                    metrics::record_message_processing_latency(processing_latency);
+
                     match kafka.send_result(record) {
                         Ok(future) => {
+                            // Update queue depth
+                            metrics::set_kafka_queue_depth("send", send_tasks.len() as i64);
+                            
+                            let created_at_for_task = message.created_at.clone();
                             let _ = send_tasks.spawn(async move {
+                                let kafka_produce_start = metrics::get_current_timestamp_secs();
                                 let result = future.await;
+                                let kafka_produce_end = metrics::get_current_timestamp_secs();
+                                
                                 debug!("kafka send message with key: {key}, result: {result:?}");
 
                                 let _ = result?.map_err(|(error, _message)| error)?;
+                                
+                                // Record Kafka produce latency
+                                let produce_latency = kafka_produce_end - kafka_produce_start;
+                                metrics::record_kafka_produce_latency(produce_latency);
+                                
+                                // Record end-to-end latency if we have the created_at timestamp
+                                if let Some(created_at) = created_at_for_task {
+                                    let created_timestamp_secs = created_at.seconds as f64 + (created_at.nanos as f64 / 1_000_000_000.0);
+                                    let end_to_end_latency = kafka_produce_end - created_timestamp_secs;
+                                    
+                                    if end_to_end_latency > 0.0 {
+                                        metrics::record_end_to_end_latency(end_to_end_latency);
+                                    }
+                                }
+                                
                                 metrics::sent_inc(prom_kind);
                                 Ok::<(), anyhow::Error>(())
                             });
@@ -341,6 +458,8 @@ impl ArgsAction {
                                         }
                                     }
                                 }
+                                // Update queue depth after processing a task
+                                metrics::set_kafka_queue_depth("send", send_tasks.len() as i64);
                             }
                         }
                         Err(error) => return Err(error.0.into()),
@@ -391,6 +510,8 @@ impl ArgsAction {
                 },
                 message = consumer.recv() => message?,
             };
+            
+            let kafka_receive_time = metrics::get_current_timestamp_secs();
             metrics::recv_inc();
             debug!(
                 "received message with key: {:?}",
@@ -398,9 +519,41 @@ impl ArgsAction {
             );
 
             if let Some(payload) = message.payload() {
+                // Record message size for consumer side
+                metrics::record_message_size(payload.len());
+                
                 match SubscribeUpdate::decode(payload) {
-                    Ok(message) => {
-                        let _ = grpc_tx.send(message);
+                    Ok(decoded_message) => {
+                        // Calculate consumer-side latency if created_at is available
+                        if let Some(created_at) = &decoded_message.created_at {
+                            let created_timestamp_secs = created_at.seconds as f64 + (created_at.nanos as f64 / 1_000_000_000.0);
+                            let consumer_latency = kafka_receive_time - created_timestamp_secs;
+                            
+                            if consumer_latency > 0.0 {
+                                // This measures the time from when the message was originally created
+                                // to when it was consumed from Kafka (including all processing time)
+                                metrics::record_end_to_end_latency(consumer_latency);
+                            }
+                        }
+                        
+                        // Track latest slot for consumer side
+                        if let Some(update_oneof) = &decoded_message.update_oneof {
+                            if let Some(slot) = extract_slot_from_update(update_oneof) {
+                                let message_type = GprcMessageKind::from(update_oneof).as_str();
+                                metrics::set_latest_processed_slot("kafka2grpc", message_type, slot);
+                            }
+                        }
+                        
+                        let grpc_send_result = grpc_tx.send(decoded_message);
+                        match grpc_send_result {
+                            Ok(_) => {
+                                // Message successfully sent to gRPC subscribers
+                            }
+                            Err(_) => {
+                                // gRPC channel is closed or full
+                                debug!("Failed to send message to gRPC subscribers - channel closed or full");
+                            }
+                        }
                     }
                     Err(error) => {
                         warn!("failed to decode message: {error}");

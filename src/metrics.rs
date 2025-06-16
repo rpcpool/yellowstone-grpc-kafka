@@ -1,5 +1,10 @@
 #[cfg(feature = "kafka")]
-use crate::kafka::metrics::{KAFKA_DEDUP_TOTAL, KAFKA_RECV_TOTAL, KAFKA_SENT_TOTAL, KAFKA_STATS};
+use crate::kafka::metrics::{
+    KAFKA_DEDUP_TOTAL, KAFKA_RECV_TOTAL, KAFKA_SENT_TOTAL, KAFKA_STATS,
+    MESSAGE_PROCESSING_LATENCY, KAFKA_PRODUCE_LATENCY, SLOT_TO_RECEIVE_LATENCY,
+    END_TO_END_LATENCY, KAFKA_QUEUE_DEPTH, SLOT_TIMING_DRIFT, MESSAGE_SIZE_BYTES,
+    OUT_OF_ORDER_SLOTS, LATEST_PROCESSED_SLOT,
+};
 use {
     crate::version::VERSION as VERSION_INFO,
     http_body_util::{combinators::BoxBody, BodyExt, Empty as BodyEmpty, Full as BodyFull},
@@ -46,6 +51,15 @@ pub async fn run_server(address: SocketAddr) -> anyhow::Result<()> {
             register!(KAFKA_DEDUP_TOTAL);
             register!(KAFKA_RECV_TOTAL);
             register!(KAFKA_SENT_TOTAL);
+            register!(MESSAGE_PROCESSING_LATENCY);
+            register!(KAFKA_PRODUCE_LATENCY);
+            register!(SLOT_TO_RECEIVE_LATENCY);
+            register!(END_TO_END_LATENCY);
+            register!(KAFKA_QUEUE_DEPTH);
+            register!(SLOT_TIMING_DRIFT);
+            register!(MESSAGE_SIZE_BYTES);
+            register!(OUT_OF_ORDER_SLOTS);
+            register!(LATEST_PROCESSED_SLOT);
         }
 
         VERSION
