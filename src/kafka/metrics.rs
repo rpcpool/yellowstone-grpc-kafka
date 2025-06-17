@@ -1,6 +1,8 @@
 use {
     crate::metrics::GprcMessageKind,
-    prometheus::{GaugeVec, Histogram, HistogramOpts, IntCounter, IntCounterVec, IntGaugeVec, Opts},
+    prometheus::{
+        GaugeVec, Histogram, HistogramOpts, IntCounter, IntCounterVec, IntGaugeVec, Opts,
+    },
     rdkafka::{
         client::{ClientContext, DefaultClientContext},
         config::{ClientConfig, FromClientConfigAndContext, RDKafkaLogLevel},
@@ -9,7 +11,10 @@ use {
         producer::FutureProducer,
         statistics::Statistics,
     },
-    std::{sync::Mutex, time::{SystemTime, UNIX_EPOCH}},
+    std::{
+        sync::Mutex,
+        time::{SystemTime, UNIX_EPOCH},
+    },
     tokio::sync::oneshot,
 };
 
@@ -42,7 +47,7 @@ lazy_static::lazy_static! {
 
     pub(crate) static ref KAFKA_PRODUCE_LATENCY: Histogram = Histogram::with_opts(
         HistogramOpts::new(
-            "kafka_produce_latency_seconds", 
+            "kafka_produce_latency_seconds",
             "Time from Kafka send to acknowledgment"
         ).buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0])
     ).unwrap();
@@ -241,7 +246,9 @@ pub fn record_end_to_end_latency(seconds: f64) {
 }
 
 pub fn set_kafka_queue_depth(operation_type: &str, depth: i64) {
-    KAFKA_QUEUE_DEPTH.with_label_values(&[operation_type]).set(depth);
+    KAFKA_QUEUE_DEPTH
+        .with_label_values(&[operation_type])
+        .set(depth);
 }
 
 pub fn record_slot_timing_drift(seconds: f64) {
@@ -257,7 +264,9 @@ pub fn inc_out_of_order_slots(message_type: &str) {
 }
 
 pub fn set_latest_processed_slot(component: &str, message_type: &str, slot: u64) {
-    LATEST_PROCESSED_SLOT.with_label_values(&[component, message_type]).set(slot as i64);
+    LATEST_PROCESSED_SLOT
+        .with_label_values(&[component, message_type])
+        .set(slot as i64);
 }
 
 pub fn get_current_timestamp_secs() -> f64 {
