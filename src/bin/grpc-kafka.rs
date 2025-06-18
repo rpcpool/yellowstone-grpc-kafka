@@ -167,8 +167,6 @@ impl ArgsAction {
                 },
                 message = consumer.recv() => message,
             }?;
-
-            let dedup_receive_time = metrics::get_current_timestamp_secs();
             metrics::recv_inc();
             trace!(
                 "received message with key: {:?}",
@@ -184,10 +182,6 @@ impl ArgsAction {
                 (Some(key), Some(payload)) => (key, payload.to_vec()),
                 _ => continue,
             };
-
-            // Record message size for dedup
-            metrics::record_message_size(payload.len());
-
             let Some((slot, hash, bytes)) = key
                 .split_once('_')
                 .and_then(|(slot, hash)| slot.parse::<u64>().ok().map(|slot| (slot, hash)))
@@ -202,56 +196,28 @@ impl ArgsAction {
             };
             debug!("received message slot #{slot} with hash {hash}");
 
-            // Track latest processed slot for dedup
-            metrics::set_latest_processed_slot("dedup", "all", slot);
-
             let kafka = kafka.clone();
             let dedup = dedup.clone();
             let kafka_output = Arc::clone(&kafka_output);
             send_tasks.spawn(async move {
-                let dedup_check_start = metrics::get_current_timestamp_secs();
-                let is_allowed = dedup.allowed(slot, bytes).await;
-                let dedup_check_end = metrics::get_current_timestamp_secs();
-
-                // Record deduplication check latency
-                let dedup_latency = dedup_check_end - dedup_check_start;
-                metrics::record_message_processing_latency(dedup_latency);
-
-                if is_allowed {
+                if dedup.allowed(slot, bytes).await {
                     let record = FutureRecord::to(&kafka_output).key(&key).payload(&payload);
                     match kafka.send_result(record) {
                         Ok(future) => {
-                            let kafka_produce_start = metrics::get_current_timestamp_secs();
                             let result = future.await;
-                            let kafka_produce_end = metrics::get_current_timestamp_secs();
-
                             debug!("kafka send message with key: {key}, result: {result:?}");
 
                             result?.map_err(|(error, _message)| error)?;
-
-                            // Record Kafka produce latency for dedup
-                            let produce_latency = kafka_produce_end - kafka_produce_start;
-                            metrics::record_kafka_produce_latency(produce_latency);
-
-                            // Record total dedup processing time
-                            let total_processing_time = kafka_produce_end - dedup_receive_time;
-                            metrics::record_end_to_end_latency(total_processing_time);
-
                             metrics::sent_inc(GprcMessageKind::Unknown);
                             Ok::<(), anyhow::Error>(())
                         }
                         Err(error) => Err(error.0.into()),
                     }
                 } else {
-                    // Message was deduplicated
                     metrics::dedup_inc();
-                    Ok::<(), anyhow::Error>(())
+                    Ok(())
                 }
             });
-
-            // Update queue depth for dedup
-            metrics::set_kafka_queue_depth("dedup", send_tasks.len() as i64);
-
             if send_tasks.len() >= config.kafka_queue_size {
                 tokio::select! {
                     _ = &mut shutdown => break,
@@ -265,8 +231,6 @@ impl ArgsAction {
                         }
                     }
                 }
-                // Update queue depth after processing
-                metrics::set_kafka_queue_depth("dedup", send_tasks.len() as i64);
             }
         }
         if !kafka_error {
@@ -275,11 +239,7 @@ impl ArgsAction {
                 tokio::select! {
                     _ = &mut kafka_error_rx => break,
                     result = send_tasks.join_next() => match result {
-                        Some(result) => {
-                            result??;
-                            // Update queue depth after dedup task completion
-                            metrics::set_kafka_queue_depth("dedup", send_tasks.len() as i64);
-                        }
+                        Some(result) => result??,
                         None => break
                     }
                 }
