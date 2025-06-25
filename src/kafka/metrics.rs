@@ -1,7 +1,8 @@
 use {
     crate::metrics::GprcMessageKind,
     prometheus::{
-        GaugeVec, Histogram, HistogramOpts, IntCounter, IntCounterVec, IntGaugeVec, Opts,
+        GaugeVec, Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge,
+        IntGaugeVec, Opts,
     },
     rdkafka::{
         client::{ClientContext, DefaultClientContext},
@@ -93,6 +94,52 @@ lazy_static::lazy_static! {
     pub(crate) static ref LATEST_PROCESSED_SLOT: IntGaugeVec = IntGaugeVec::new(
         Opts::new("latest_processed_slot", "Latest slot number processed by component"),
         &["component", "message_type"]
+    ).unwrap();
+
+    pub(crate) static ref MESSAGE_LATENCY_BY_TYPE: HistogramVec = HistogramVec::new(
+        HistogramOpts::new(
+            "message_latency_by_type_seconds",
+            "Processing latency broken down by message type and stage"
+        ).buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
+        &["message_type", "stage"] // stages: "processing", "kafka_produce", "end_to_end"
+    ).unwrap();
+
+    pub(crate) static ref QUEUE_WAIT_TIME: Histogram = Histogram::with_opts(
+        HistogramOpts::new(
+            "queue_wait_time_seconds",
+            "Time messages spend waiting in the send queue before processing"
+        ).buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0])
+    ).unwrap();
+
+    pub(crate) static ref MESSAGE_RATE: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("message_rate_per_sec", "Messages processed per second"),
+        &["direction", "message_type"] // "inbound", "outbound"
+    ).unwrap();
+
+    pub(crate) static ref KAFKA_BATCH_SIZE: Histogram = Histogram::with_opts(
+        HistogramOpts::new(
+            "kafka_effective_batch_size",
+            "Effective batch sizes when sending to Kafka"
+        ).buckets(vec![1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0])
+    ).unwrap();
+
+    pub(crate) static ref MEMORY_USAGE_BYTES: IntGauge = IntGauge::new(
+        "memory_usage_bytes", "Current estimated memory usage in bytes"
+    ).unwrap();
+
+    pub(crate) static ref QUEUE_DEPTH_HIGH_WATER_MARK: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("queue_depth_high_water_mark", "Highest queue depth reached"),
+        &["operation_type"]
+    ).unwrap();
+
+    pub(crate) static ref MESSAGE_THROUGHPUT_BY_TYPE: IntCounterVec = IntCounterVec::new(
+        Opts::new("message_throughput_by_type_total", "Total messages processed by type"),
+        &["message_type", "direction"]
+    ).unwrap();
+
+    pub(crate) static ref QUEUE_SATURATION_EVENTS: IntCounterVec = IntCounterVec::new(
+        Opts::new("queue_saturation_events_total", "Number of times queue reached capacity"),
+        &["queue_type"]
     ).unwrap();
 }
 
@@ -274,4 +321,68 @@ pub fn get_current_timestamp_secs() -> f64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs_f64()
+}
+
+// **NEW METRIC HELPER FUNCTIONS**
+
+pub fn record_message_latency_by_type(message_type: &str, stage: &str, seconds: f64) {
+    MESSAGE_LATENCY_BY_TYPE
+        .with_label_values(&[message_type, stage])
+        .observe(seconds);
+}
+
+pub fn record_queue_wait_time(seconds: f64) {
+    QUEUE_WAIT_TIME.observe(seconds);
+}
+
+pub fn set_message_rate(direction: &str, message_type: &str, rate: i64) {
+    MESSAGE_RATE
+        .with_label_values(&[direction, message_type])
+        .set(rate);
+}
+
+pub fn record_kafka_batch_size(batch_size: usize) {
+    KAFKA_BATCH_SIZE.observe(batch_size as f64);
+}
+
+pub fn set_memory_usage_bytes(bytes: i64) {
+    MEMORY_USAGE_BYTES.set(bytes);
+}
+
+pub fn update_queue_depth_high_water_mark(operation_type: &str, depth: i64) {
+    let current = QUEUE_DEPTH_HIGH_WATER_MARK
+        .with_label_values(&[operation_type])
+        .get();
+    if depth > current {
+        QUEUE_DEPTH_HIGH_WATER_MARK
+            .with_label_values(&[operation_type])
+            .set(depth);
+    }
+}
+
+pub fn inc_message_throughput_by_type(message_type: &str, direction: &str) {
+    MESSAGE_THROUGHPUT_BY_TYPE
+        .with_label_values(&[message_type, direction])
+        .inc();
+}
+
+pub fn inc_queue_saturation_events(queue_type: &str) {
+    QUEUE_SATURATION_EVENTS
+        .with_label_values(&[queue_type])
+        .inc();
+}
+
+// Track average message rates (call this periodically)
+pub fn update_message_rates(inbound_rate: i64, outbound_rate: i64) {
+    MESSAGE_RATE
+        .with_label_values(&["inbound", "total"])
+        .set(inbound_rate);
+    MESSAGE_RATE
+        .with_label_values(&["outbound", "total"])
+        .set(outbound_rate);
+}
+
+// Helper to estimate memory usage (rough approximation)
+pub fn estimate_memory_usage(queue_depth: usize, avg_message_size: usize) -> i64 {
+    (queue_depth * avg_message_size) as i64
 }

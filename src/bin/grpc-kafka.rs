@@ -279,6 +279,12 @@ impl ArgsAction {
         // Track latest slot for out-of-order detection
         let mut latest_slot_by_type: HashMap<String, u64> = HashMap::new();
 
+        // Track throughput and queue statistics
+        let mut message_count = 0u64;
+        let mut last_throughput_update = metrics::get_current_timestamp_secs();
+        let mut total_message_size = 0usize;
+        let mut max_queue_depth = 0usize;
+
         loop {
             let message = tokio::select! {
                 _ = &mut shutdown => break,
@@ -308,8 +314,11 @@ impl ArgsAction {
                 Some(message) => {
                     // Record when we received the message
                     let receive_time = metrics::get_current_timestamp_secs();
+                    message_count += 1;
 
                     let payload = message.encode_to_vec();
+                    total_message_size += payload.len();
+
                     let message_inner = match &message.update_oneof {
                         Some(value) => value,
                         None => unreachable!("Expect valid message"),
@@ -340,6 +349,9 @@ impl ArgsAction {
                     let prom_kind = GprcMessageKind::from(message_inner);
                     let message_type = prom_kind.as_str();
 
+                    // Track message throughput by type
+                    metrics::inc_message_throughput_by_type(message_type, "inbound");
+
                     // Track slot timing and out-of-order detection
                     if let Some(latest_slot) = latest_slot_by_type.get(message_type) {
                         if slot < *latest_slot {
@@ -361,6 +373,12 @@ impl ArgsAction {
                         // Only record positive latencies (sometimes clocks can be off)
                         if slot_to_receive_latency > 0.0 {
                             metrics::record_slot_to_receive_latency(slot_to_receive_latency);
+                            // Record by message type
+                            metrics::record_message_latency_by_type(
+                                message_type,
+                                "slot_to_receive",
+                                slot_to_receive_latency,
+                            );
                         }
 
                         // Record slot timing drift (for debugging clock synchronization issues)
@@ -376,14 +394,50 @@ impl ArgsAction {
                     let kafka_send_time = metrics::get_current_timestamp_secs();
                     let processing_latency = kafka_send_time - receive_time;
                     metrics::record_message_processing_latency(processing_latency);
+                    // Record by message type
+                    metrics::record_message_latency_by_type(
+                        message_type,
+                        "processing",
+                        processing_latency,
+                    );
 
                     match kafka.send_result(record) {
                         Ok(future) => {
-                            // Update queue depth
-                            metrics::set_kafka_queue_depth("send", send_tasks.len() as i64);
+                            // Update queue depth and track high water mark
+                            let current_queue_depth = send_tasks.len();
+                            metrics::set_kafka_queue_depth("send", current_queue_depth as i64);
+                            metrics::update_queue_depth_high_water_mark(
+                                "send",
+                                current_queue_depth as i64,
+                            );
+
+                            // Track max queue depth and memory usage
+                            if current_queue_depth > max_queue_depth {
+                                max_queue_depth = current_queue_depth;
+                            }
+
+                            // Estimate memory usage
+                            let avg_message_size = if message_count > 0 {
+                                total_message_size / message_count as usize
+                            } else {
+                                0
+                            };
+                            let estimated_memory = metrics::estimate_memory_usage(
+                                current_queue_depth,
+                                avg_message_size,
+                            );
+                            metrics::set_memory_usage_bytes(estimated_memory);
 
                             let created_at_for_task = message.created_at.clone();
+                            let message_type_for_task = message_type.to_string();
+                            let queue_enqueue_time = metrics::get_current_timestamp_secs();
+
                             let _ = send_tasks.spawn(async move {
+                                // Calculate queue wait time
+                                let task_start_time = metrics::get_current_timestamp_secs();
+                                let queue_wait_latency = task_start_time - queue_enqueue_time;
+                                metrics::record_queue_wait_time(queue_wait_latency);
+
                                 let kafka_produce_start = metrics::get_current_timestamp_secs();
                                 let result = future.await;
                                 let kafka_produce_end = metrics::get_current_timestamp_secs();
@@ -395,6 +449,12 @@ impl ArgsAction {
                                 // Record Kafka produce latency
                                 let produce_latency = kafka_produce_end - kafka_produce_start;
                                 metrics::record_kafka_produce_latency(produce_latency);
+                                // Record by message type
+                                metrics::record_message_latency_by_type(
+                                    &message_type_for_task,
+                                    "kafka_produce",
+                                    produce_latency,
+                                );
 
                                 // Record end-to-end latency if we have the created_at timestamp
                                 if let Some(created_at) = created_at_for_task {
@@ -405,13 +465,28 @@ impl ArgsAction {
 
                                     if end_to_end_latency > 0.0 {
                                         metrics::record_end_to_end_latency(end_to_end_latency);
+                                        // Record by message type
+                                        metrics::record_message_latency_by_type(
+                                            &message_type_for_task,
+                                            "end_to_end",
+                                            end_to_end_latency,
+                                        );
                                     }
                                 }
 
+                                // Track outbound throughput
+                                metrics::inc_message_throughput_by_type(
+                                    &message_type_for_task,
+                                    "outbound",
+                                );
                                 metrics::sent_inc(prom_kind);
                                 Ok::<(), anyhow::Error>(())
                             });
+
+                            // Check for queue saturation
                             if send_tasks.len() >= config.kafka_queue_size {
+                                metrics::inc_queue_saturation_events("kafka_send");
+
                                 tokio::select! {
                                     _ = &mut shutdown => break,
                                     _ = &mut kafka_error_rx => {
@@ -426,6 +501,19 @@ impl ArgsAction {
                                 }
                                 // Update queue depth after processing a task
                                 metrics::set_kafka_queue_depth("send", send_tasks.len() as i64);
+                            }
+
+                            // Periodically update throughput rates
+                            let current_time = metrics::get_current_timestamp_secs();
+                            if current_time - last_throughput_update >= 5.0 {
+                                // Update every 5 seconds
+                                let time_diff = current_time - last_throughput_update;
+                                let message_rate = (message_count as f64 / time_diff) as i64;
+                                metrics::update_message_rates(message_rate, message_rate);
+
+                                // Reset counters
+                                message_count = 0;
+                                last_throughput_update = current_time;
                             }
                         }
                         Err(error) => return Err(error.0.into()),
@@ -512,6 +600,28 @@ impl ArgsAction {
                                     message_type,
                                     slot,
                                 );
+
+                                // Track consumer throughput by message type
+                                metrics::inc_message_throughput_by_type(
+                                    message_type,
+                                    "kafka_consumer",
+                                );
+
+                                // Record consumer latency by message type
+                                if let Some(created_at) = &decoded_message.created_at {
+                                    let created_timestamp_secs = created_at.seconds as f64
+                                        + (created_at.nanos as f64 / 1_000_000_000.0);
+                                    let consumer_latency =
+                                        kafka_receive_time - created_timestamp_secs;
+
+                                    if consumer_latency > 0.0 {
+                                        metrics::record_message_latency_by_type(
+                                            message_type,
+                                            "kafka_consumer",
+                                            consumer_latency,
+                                        );
+                                    }
+                                }
                             }
                         }
 
