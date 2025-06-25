@@ -323,8 +323,6 @@ pub fn get_current_timestamp_secs() -> f64 {
         .as_secs_f64()
 }
 
-// **NEW METRIC HELPER FUNCTIONS**
-
 pub fn record_message_latency_by_type(message_type: &str, stage: &str, seconds: f64) {
     MESSAGE_LATENCY_BY_TYPE
         .with_label_values(&[message_type, stage])
