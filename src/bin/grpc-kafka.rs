@@ -266,11 +266,23 @@ impl ArgsAction {
 
             match message {
                 Some(message) => {
-                    let payload = message.encode_to_vec();
                     let message = match &message.update_oneof {
                         Some(value) => value,
                         None => unreachable!("Expect valid message"),
                     };
+
+                    let payload = match message {
+                        UpdateOneof::Account(msg) => msg.encode_to_vec(),
+                        UpdateOneof::Slot(msg) => msg.encode_to_vec(),
+                        UpdateOneof::Transaction(msg) => msg.encode_to_vec(),
+                        UpdateOneof::TransactionStatus(msg) => msg.encode_to_vec(),
+                        UpdateOneof::Block(msg) => msg.encode_to_vec(),
+                        UpdateOneof::Ping(_) => continue,
+                        UpdateOneof::Pong(_) => continue,
+                        UpdateOneof::BlockMeta(msg) => msg.encode_to_vec(),
+                        UpdateOneof::Entry(msg) => msg.encode_to_vec(),
+                    };
+                    
                     let slot = match message {
                         UpdateOneof::Account(msg) => msg.slot,
                         UpdateOneof::Slot(msg) => msg.slot,
@@ -282,6 +294,7 @@ impl ArgsAction {
                         UpdateOneof::BlockMeta(msg) => msg.slot,
                         UpdateOneof::Entry(msg) => msg.slot,
                     };
+                    
                     let hash = Sha256::digest(&payload);
                     let key = format!("{slot}_{}", const_hex::encode(hash));
                     let prom_kind = GprcMessageKind::from(message);
