@@ -48,6 +48,7 @@ fn build_kafka() -> anyhow::Result<HashMap<String, String>> {
 
     let required_configs = [
         ("bootstrap.servers", "KAFKA_BOOTSTRAP_SERVERS"),
+        ("compression.codec", "KAFKA_COMPRESSION_CODEC"),
         ("statistics.interval.ms", "KAFKA_STATISTICS_INTERVAL_MS"),
     ];
 
