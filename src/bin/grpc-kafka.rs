@@ -303,7 +303,6 @@ impl ArgsAction {
                         Some(value) => value,
                         None => unreachable!("Expect valid message"),
                     };
-
                     let slot = match message {
                         UpdateOneof::Account(msg) => msg.slot,
                         UpdateOneof::Slot(msg) => msg.slot,
