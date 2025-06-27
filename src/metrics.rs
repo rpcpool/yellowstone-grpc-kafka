@@ -1,5 +1,12 @@
 #[cfg(feature = "kafka")]
-use crate::kafka::metrics::{KAFKA_DEDUP_TOTAL, KAFKA_RECV_TOTAL, KAFKA_SENT_TOTAL, KAFKA_STATS};
+use crate::kafka::metrics::{
+    END_TO_END_LATENCY, KAFKA_BATCH_SIZE, KAFKA_DEDUP_TOTAL, KAFKA_PRODUCE_LATENCY,
+    KAFKA_QUEUE_DEPTH, KAFKA_RECV_TOTAL, KAFKA_SENT_TOTAL, KAFKA_STATS, LATEST_PROCESSED_SLOT,
+    MEMORY_USAGE_BYTES, MESSAGE_LATENCY_BY_TYPE, MESSAGE_PROCESSING_LATENCY, MESSAGE_RATE,
+    MESSAGE_SIZE_BYTES, MESSAGE_THROUGHPUT_BY_TYPE, OUT_OF_ORDER_SLOTS,
+    QUEUE_DEPTH_HIGH_WATER_MARK, QUEUE_SATURATION_EVENTS, QUEUE_WAIT_TIME, SLOT_TIMING_DRIFT,
+    SLOT_TO_RECEIVE_LATENCY,
+};
 use {
     crate::version::VERSION as VERSION_INFO,
     http_body_util::{combinators::BoxBody, BodyExt, Empty as BodyEmpty, Full as BodyFull},
@@ -46,6 +53,23 @@ pub async fn run_server(address: SocketAddr) -> anyhow::Result<()> {
             register!(KAFKA_DEDUP_TOTAL);
             register!(KAFKA_RECV_TOTAL);
             register!(KAFKA_SENT_TOTAL);
+            register!(MESSAGE_PROCESSING_LATENCY);
+            register!(KAFKA_PRODUCE_LATENCY);
+            register!(SLOT_TO_RECEIVE_LATENCY);
+            register!(END_TO_END_LATENCY);
+            register!(KAFKA_QUEUE_DEPTH);
+            register!(SLOT_TIMING_DRIFT);
+            register!(MESSAGE_SIZE_BYTES);
+            register!(OUT_OF_ORDER_SLOTS);
+            register!(LATEST_PROCESSED_SLOT);
+            register!(MESSAGE_LATENCY_BY_TYPE);
+            register!(QUEUE_WAIT_TIME);
+            register!(MESSAGE_RATE);
+            register!(KAFKA_BATCH_SIZE);
+            register!(MEMORY_USAGE_BYTES);
+            register!(QUEUE_DEPTH_HIGH_WATER_MARK);
+            register!(MESSAGE_THROUGHPUT_BY_TYPE);
+            register!(QUEUE_SATURATION_EVENTS);
         }
 
         VERSION

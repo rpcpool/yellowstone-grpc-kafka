@@ -17,6 +17,7 @@ use {
         health::{ack_ping, ack_pong},
         kafka::{
             config::{Config, ConfigDedup, ConfigGrpc2Kafka, ConfigKafka2Grpc, ConfigWss2Kafka},
+            debug_metrics::{DebugMetricsTracker, KafkaSendTaskMetrics},
             dedup::KafkaDedup,
             grpc::GrpcService,
             metrics,
@@ -261,6 +262,10 @@ impl ArgsAction {
 
         // Receive-send loop
         let mut send_tasks = JoinSet::new();
+
+        // Initialize debug metrics tracker
+        let mut debug_metrics = DebugMetricsTracker::new();
+
         loop {
             let message = tokio::select! {
                 _ = &mut shutdown => break,
@@ -288,7 +293,12 @@ impl ArgsAction {
 
             match message {
                 Some(message) => {
+                    // Record when we received the message
+                    let receive_time = metrics::get_current_timestamp_secs();
+
                     let payload = message.encode_to_vec();
+                    let update = &message; // Keep reference to outer message before shadowing
+
                     let message = match &message.update_oneof {
                         Some(value) => value,
                         None => unreachable!("Expect valid message"),
@@ -313,22 +323,51 @@ impl ArgsAction {
                     let hash = Sha256::digest(&payload);
                     let key = format!("{slot}_{}", const_hex::encode(hash));
                     let prom_kind = GprcMessageKind::from(message);
+                    let message_type = prom_kind.as_str();
+
+                    // Record message received with all metrics
+                    debug_metrics.record_message_received(update, receive_time);
 
                     let record = FutureRecord::to(&config.kafka_topic)
                         .key(&key)
                         .payload(&payload);
 
+                    // Record message processing latency
+                    debug_metrics.record_processing_latency(receive_time, message_type);
+
                     match kafka.send_result(record) {
                         Ok(future) => {
+                            // Create task metrics for the Kafka send operation
+                            let task_metrics = KafkaSendTaskMetrics::new(update, prom_kind);
+
                             let _ = send_tasks.spawn(async move {
+                                // Record task start and queue wait time
+                                task_metrics.record_task_completion()?;
+
+                                let kafka_produce_start = metrics::get_current_timestamp_secs();
                                 let result = future.await;
+                                let kafka_produce_end = metrics::get_current_timestamp_secs();
+
                                 debug!("kafka send message with key: {key}, result: {result:?}");
 
                                 let _ = result?.map_err(|(error, _message)| error)?;
-                                metrics::sent_inc(prom_kind);
+
+                                // Record all Kafka produce metrics
+                                task_metrics.record_kafka_produce_metrics(
+                                    kafka_produce_start,
+                                    kafka_produce_end,
+                                );
+
                                 Ok::<(), anyhow::Error>(())
                             });
+
+                            // Update queue metrics and memory usage after spawning task
+                            debug_metrics.update_queue_metrics(send_tasks.len());
+
+                            // Check for queue saturation
                             if send_tasks.len() >= config.kafka_queue_size {
+                                debug_metrics.record_queue_saturation();
+
                                 tokio::select! {
                                     _ = &mut shutdown => break,
                                     _ = &mut kafka_error_rx => {
@@ -341,7 +380,13 @@ impl ArgsAction {
                                         }
                                     }
                                 }
+
+                                // Update queue depth after processing a task
+                                debug_metrics.update_queue_depth_after_task(send_tasks.len());
                             }
+
+                            // Periodically update throughput rates
+                            debug_metrics.update_throughput_rates();
                         }
                         Err(error) => return Err(error.0.into()),
                     }
