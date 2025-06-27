@@ -262,7 +262,7 @@ impl ArgsAction {
 
         // Receive-send loop
         let mut send_tasks = JoinSet::new();
-        
+
         // Initialize debug metrics tracker
         let mut debug_metrics = DebugMetricsTracker::new();
 
@@ -337,9 +337,6 @@ impl ArgsAction {
 
                     match kafka.send_result(record) {
                         Ok(future) => {
-                            // Update queue metrics and memory usage
-                            debug_metrics.update_queue_metrics(send_tasks.len());
-
                             // Create task metrics for the Kafka send operation
                             let task_metrics = KafkaSendTaskMetrics::new(&message, prom_kind);
 
@@ -356,10 +353,16 @@ impl ArgsAction {
                                 let _ = result?.map_err(|(error, _message)| error)?;
 
                                 // Record all Kafka produce metrics
-                                task_metrics.record_kafka_produce_metrics(kafka_produce_start, kafka_produce_end);
-                                
+                                task_metrics.record_kafka_produce_metrics(
+                                    kafka_produce_start,
+                                    kafka_produce_end,
+                                );
+
                                 Ok::<(), anyhow::Error>(())
                             });
+
+                            // Update queue metrics and memory usage after spawning task
+                            debug_metrics.update_queue_metrics(send_tasks.len());
 
                             // Check for queue saturation
                             if send_tasks.len() >= config.kafka_queue_size {
@@ -377,7 +380,7 @@ impl ArgsAction {
                                         }
                                     }
                                 }
-                                
+
                                 // Update queue depth after processing a task
                                 debug_metrics.update_queue_depth_after_task(send_tasks.len());
                             }

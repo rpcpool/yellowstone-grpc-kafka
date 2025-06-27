@@ -1,8 +1,5 @@
 use {
-    crate::{
-        kafka::metrics,
-        metrics::GprcMessageKind,
-    },
+    crate::{kafka::metrics, metrics::GprcMessageKind},
     std::collections::HashMap,
     yellowstone_grpc_proto::{
         prelude::{subscribe_update::UpdateOneof, SubscribeUpdate},
@@ -17,16 +14,16 @@ use {
 pub struct DebugMetricsTracker {
     /// Track latest slot by message type for out-of-order detection
     latest_slot_by_type: HashMap<String, u64>,
-    
+
     /// Message count for throughput calculations
     message_count: u64,
-    
+
     /// Last time throughput was updated
     last_throughput_update: f64,
-    
+
     /// Total message size for memory estimation
     total_message_size: usize,
-    
+
     /// Maximum queue depth reached
     max_queue_depth: usize,
 }
@@ -46,24 +43,24 @@ impl DebugMetricsTracker {
     /// Process a received message and record all relevant metrics
     pub fn record_message_received(&mut self, message: &SubscribeUpdate, receive_time: f64) {
         self.message_count += 1;
-        
+
         let payload_size = message.encoded_len();
-        self.total_message_size += payload_size;
-        
+        self.total_message_size = self.total_message_size.saturating_add(payload_size);
+
         // Record message size
         metrics::record_message_size(payload_size);
-        
+
         // Process slot-related metrics if we have an update
         if let Some(update_oneof) = &message.update_oneof {
             if let Some(slot) = extract_slot_from_update(update_oneof) {
                 let message_type = GprcMessageKind::from(update_oneof).as_str();
-                
+
                 // Track inbound throughput by type
                 metrics::inc_message_throughput_by_type(message_type, "inbound");
-                
+
                 // Track out-of-order detection
                 self.track_slot_ordering(slot, message_type);
-                
+
                 // Record slot-to-receive latency if created_at is available
                 self.record_slot_latency(message, receive_time, message_type);
             }
@@ -77,34 +74,35 @@ impl DebugMetricsTracker {
                 metrics::inc_out_of_order_slots(message_type);
             }
         }
-        
+
         let current_latest = *self.latest_slot_by_type.get(message_type).unwrap_or(&0);
-        self.latest_slot_by_type.insert(
-            message_type.to_string(),
-            slot.max(current_latest),
-        );
-        
+        self.latest_slot_by_type
+            .insert(message_type.to_string(), slot.max(current_latest));
+
         metrics::set_latest_processed_slot("grpc2kafka", message_type, slot);
     }
 
     /// Record latency from slot creation to message receipt
-    fn record_slot_latency(&self, message: &SubscribeUpdate, receive_time: f64, message_type: &str) {
+    fn record_slot_latency(
+        &self,
+        message: &SubscribeUpdate,
+        receive_time: f64,
+        message_type: &str,
+    ) {
         if let Some(created_at) = &message.created_at {
             let created_timestamp_secs =
                 created_at.seconds as f64 + (created_at.nanos as f64 / 1_000_000_000.0);
             let slot_to_receive_latency = receive_time - created_timestamp_secs;
 
-            // Only record positive latencies (sometimes clocks can be off)
-            if slot_to_receive_latency > 0.0 {
-                metrics::record_slot_to_receive_latency(slot_to_receive_latency);
-                metrics::record_message_latency_by_type(
-                    message_type,
-                    "slot_to_receive",
-                    slot_to_receive_latency,
-                );
-            }
+            metrics::record_slot_to_receive_latency(slot_to_receive_latency);
+            metrics::record_message_latency_by_type(
+                message_type,
+                "slot_to_receive",
+                slot_to_receive_latency,
+            );
 
             // Record slot timing drift (for debugging clock synchronization issues)
+            // This can be negative if our clock is ahead of the slot creation time
             metrics::record_slot_timing_drift(slot_to_receive_latency);
         }
     }
@@ -113,13 +111,9 @@ impl DebugMetricsTracker {
     pub fn record_processing_latency(&self, receive_time: f64, message_type: &str) {
         let kafka_send_time = metrics::get_current_timestamp_secs();
         let processing_latency = kafka_send_time - receive_time;
-        
+
         metrics::record_message_processing_latency(processing_latency);
-        metrics::record_message_latency_by_type(
-            message_type,
-            "processing",
-            processing_latency,
-        );
+        metrics::record_message_latency_by_type(message_type, "processing", processing_latency);
     }
 
     /// Update queue depth metrics and memory usage estimates
@@ -127,19 +121,20 @@ impl DebugMetricsTracker {
         // Update queue depth metrics
         metrics::set_kafka_queue_depth("send", current_queue_depth as i64);
         metrics::update_queue_depth_high_water_mark("send", current_queue_depth as i64);
-        
+
         // Track max queue depth
         if current_queue_depth > self.max_queue_depth {
             self.max_queue_depth = current_queue_depth;
         }
-        
+
         // Estimate memory usage
         let avg_message_size = if self.message_count > 0 {
             self.total_message_size / self.message_count as usize
         } else {
             0
         };
-        let estimated_memory = metrics::estimate_memory_usage(current_queue_depth, avg_message_size);
+        let estimated_memory =
+            metrics::estimate_memory_usage(current_queue_depth, avg_message_size);
         metrics::set_memory_usage_bytes(estimated_memory);
     }
 
@@ -151,15 +146,20 @@ impl DebugMetricsTracker {
     /// Update throughput rates periodically
     pub fn update_throughput_rates(&mut self) {
         let current_time = metrics::get_current_timestamp_secs();
-        
+
         // Update every 5 seconds
         if current_time - self.last_throughput_update >= 5.0 {
             let time_diff = current_time - self.last_throughput_update;
-            let message_rate = (self.message_count as f64 / time_diff) as i64;
+            let message_rate = if time_diff > 0.0 {
+                (self.message_count as f64 / time_diff) as i64
+            } else {
+                0
+            };
             metrics::update_message_rates(message_rate, message_rate);
-            
+
             // Reset counters
             self.message_count = 0;
+            self.total_message_size = 0;
             self.last_throughput_update = current_time;
         }
     }
@@ -207,7 +207,7 @@ impl KafkaSendTaskMetrics {
     /// Record Kafka produce latency and end-to-end metrics
     pub fn record_kafka_produce_metrics(&self, produce_start: f64, produce_end: f64) {
         let produce_latency = produce_end - produce_start;
-        
+
         // Record Kafka produce latency
         metrics::record_kafka_produce_latency(produce_latency);
         metrics::record_message_latency_by_type(
@@ -250,4 +250,4 @@ fn extract_slot_from_update(update_oneof: &UpdateOneof) -> Option<u64> {
         UpdateOneof::Entry(msg) => Some(msg.slot),
         UpdateOneof::Ping(_) | UpdateOneof::Pong(_) => None,
     }
-} 
+}
