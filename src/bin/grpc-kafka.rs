@@ -297,13 +297,14 @@ impl ArgsAction {
                     let receive_time = metrics::get_current_timestamp_secs();
 
                     let payload = message.encode_to_vec();
+                    let update = &message; // Keep reference to outer message before shadowing
 
-                    let message_inner = match &message.update_oneof {
+                    let message = match &message.update_oneof {
                         Some(value) => value,
                         None => unreachable!("Expect valid message"),
                     };
 
-                    let slot = match message_inner {
+                    let slot = match message {
                         UpdateOneof::Account(msg) => msg.slot,
                         UpdateOneof::Slot(msg) => msg.slot,
                         UpdateOneof::Transaction(msg) => msg.slot,
@@ -322,11 +323,11 @@ impl ArgsAction {
                     };
                     let hash = Sha256::digest(&payload);
                     let key = format!("{slot}_{}", const_hex::encode(hash));
-                    let prom_kind = GprcMessageKind::from(message_inner);
+                    let prom_kind = GprcMessageKind::from(message);
                     let message_type = prom_kind.as_str();
 
                     // Record message received with all metrics
-                    debug_metrics.record_message_received(&message, receive_time);
+                    debug_metrics.record_message_received(update, receive_time);
 
                     let record = FutureRecord::to(&config.kafka_topic)
                         .key(&key)
@@ -338,7 +339,7 @@ impl ArgsAction {
                     match kafka.send_result(record) {
                         Ok(future) => {
                             // Create task metrics for the Kafka send operation
-                            let task_metrics = KafkaSendTaskMetrics::new(&message, prom_kind);
+                            let task_metrics = KafkaSendTaskMetrics::new(update, prom_kind);
 
                             let _ = send_tasks.spawn(async move {
                                 // Record task start and queue wait time
