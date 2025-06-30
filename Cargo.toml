@@ -1,6 +1,6 @@
 [package]
 name = "yellowstone-grpc-kafka"
-version = "4.0.0"
+version = "4.0.1"
 authors = ["Triton One"]
 edition = "2021"
 description = "Yellowstone gRPC config/request transformers"
