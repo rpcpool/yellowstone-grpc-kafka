@@ -282,7 +282,7 @@ impl ArgsAction {
                         UpdateOneof::BlockMeta(msg) => msg.encode_to_vec(),
                         UpdateOneof::Entry(msg) => msg.encode_to_vec(),
                     };
-                    
+
                     let slot = match message {
                         UpdateOneof::Account(msg) => msg.slot,
                         UpdateOneof::Slot(msg) => msg.slot,
@@ -294,7 +294,7 @@ impl ArgsAction {
                         UpdateOneof::BlockMeta(msg) => msg.slot,
                         UpdateOneof::Entry(msg) => msg.slot,
                     };
-                    
+
                     let hash = Sha256::digest(&payload);
                     let key = format!("{slot}_{}", const_hex::encode(hash));
                     let prom_kind = GprcMessageKind::from(message);
