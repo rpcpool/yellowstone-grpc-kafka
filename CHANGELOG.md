@@ -22,6 +22,8 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 - Duplication error involving sending message with the created_at field which make the sha256 be different,
 resulting on a different update even if its the same.
+- Bump Tokio to `1.45.1`, because of advisory on cargo deny
+- Bump openssl to `0.10.73` for the same reason as Tokio.
 
 ## [4.0.0] - 2025-03-10
 
