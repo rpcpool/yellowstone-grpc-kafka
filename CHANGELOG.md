@@ -20,10 +20,12 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Fixes
 
-- Duplication error involving sending message with the created_at field which make the sha256 be different,
-resulting on a different update even if its the same.
-- Bump Tokio to `1.45.1`, because of advisory on cargo deny
-- Bump openssl to `0.10.73` for the same reason as Tokio.
+- Fix deduplication failure when using multiple gRPC sources. Previously hashed the entire 
+  SubscribeUpdate including variable metadata (created_at, filters), causing identical 
+  messages from different sources to generate different hashes. Now hashes only the 
+  inner update_oneof content, ensuring consistent deduplication across sources.
+- Bump tokio to 1.45.1 (security advisory)
+- Bump openssl to 0.10.73 (security advisory)
 
 ## [4.0.0] - 2025-03-10
 
