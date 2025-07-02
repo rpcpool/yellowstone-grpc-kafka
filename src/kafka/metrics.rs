@@ -72,13 +72,6 @@ lazy_static::lazy_static! {
         &["operation_type"]
     ).unwrap();
 
-    pub(crate) static ref SLOT_TIMING_DRIFT: Histogram = Histogram::with_opts(
-        HistogramOpts::new(
-            "slot_timing_drift_seconds",
-            "Difference between expected slot time and actual receive time"
-        ).buckets(vec![-300.0, -60.0, -30.0, -10.0, -5.0, -1.0, 0.0, 1.0, 5.0, 10.0, 30.0, 60.0, 300.0])
-    ).unwrap();
-
     pub(crate) static ref MESSAGE_SIZE_BYTES: Histogram = Histogram::with_opts(
         HistogramOpts::new(
             "message_size_bytes",
@@ -296,10 +289,6 @@ pub fn set_kafka_queue_depth(operation_type: &str, depth: i64) {
     KAFKA_QUEUE_DEPTH
         .with_label_values(&[operation_type])
         .set(depth);
-}
-
-pub fn record_slot_timing_drift(seconds: f64) {
-    SLOT_TIMING_DRIFT.observe(seconds);
 }
 
 pub fn record_message_size(bytes: usize) {

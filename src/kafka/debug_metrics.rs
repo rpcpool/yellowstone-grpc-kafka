@@ -100,10 +100,6 @@ impl DebugMetricsTracker {
                 "slot_to_receive",
                 slot_to_receive_latency,
             );
-
-            // Record slot timing drift (for debugging clock synchronization issues)
-            // This can be negative if our clock is ahead of the slot creation time
-            metrics::record_slot_timing_drift(slot_to_receive_latency);
         }
     }
 

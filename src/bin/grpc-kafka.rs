@@ -380,10 +380,10 @@ impl ArgsAction {
                                         }
                                     }
                                 }
-
-                                // Update queue depth after processing a task
-                                debug_metrics.update_queue_depth_after_task(send_tasks.len());
                             }
+
+                            // Update queue depth after processing a task
+                            debug_metrics.update_queue_depth_after_task(send_tasks.len());
 
                             // Periodically update throughput rates
                             debug_metrics.update_throughput_rates();
