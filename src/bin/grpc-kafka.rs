@@ -8,7 +8,7 @@ use {
     tokio::task::JoinSet,
     tokio_tungstenite::{connect_async, tungstenite::protocol::Message as TokioMessage},
     tonic::transport::ClientTlsConfig,
-    tracing::{debug, trace, warn},
+    tracing::{debug, info, trace, warn},
     yellowstone_grpc_client::GeyserGrpcClient,
     yellowstone_grpc_kafka::{
         config::GrpcRequestToProto,
@@ -240,6 +240,11 @@ impl ArgsAction {
         config: ConfigGrpc2Kafka,
         mut shutdown: BoxFuture<'static, ()>,
     ) -> anyhow::Result<()> {
+        let mut messages_read = 0;
+        let mut messages_sent = 0;
+
+        kafka_config.set("debug", "broker,topic,msg");
+
         for (key, value) in config.kafka.into_iter() {
             kafka_config.set(key, value);
         }
@@ -275,6 +280,7 @@ impl ArgsAction {
                 }
                 maybe_result = send_tasks.join_next() => match maybe_result {
                     Some(result) => {
+                        messages_sent += 1;
                         result??;
                         continue;
                     }
@@ -293,6 +299,8 @@ impl ArgsAction {
 
             match message {
                 Some(message) => {
+                    messages_read += 1;
+
                     // Record when we received the message
                     let receive_time = metrics::get_current_timestamp_secs();
 
@@ -311,6 +319,9 @@ impl ArgsAction {
                         UpdateOneof::Block(msg) => msg.slot,
                         UpdateOneof::Ping(_) => {
                             tokio::spawn(ack_ping());
+                            info!("messages_read: {messages_read}");
+                            info!("messages_sent: {messages_sent}");
+                            info!("send_tasks: {}", send_tasks.len());
                             continue;
                         }
                         UpdateOneof::Pong(_) => {
@@ -376,6 +387,7 @@ impl ArgsAction {
                                     }
                                     result = send_tasks.join_next() => {
                                         if let Some(result) = result {
+                                            messages_sent += 1;
                                             result??;
                                         }
                                     }
