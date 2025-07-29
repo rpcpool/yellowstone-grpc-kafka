@@ -265,13 +265,14 @@ impl ArgsAction {
             .transpose()?;
 
             match message {
-                Some(message) => {
-                    let message = match &message.update_oneof {
+                Some(message_full) => {
+                    let message_inner = match &message_full.update_oneof {
                         Some(value) => value,
                         None => unreachable!("Expect valid message"),
                     };
 
-                    let payload = match message {
+                    // Hash only the inner content (for dedup)
+                    let hash_payload = match message_inner {
                         UpdateOneof::Account(msg) => msg.encode_to_vec(),
                         UpdateOneof::Slot(msg) => msg.encode_to_vec(),
                         UpdateOneof::Transaction(msg) => msg.encode_to_vec(),
@@ -283,7 +284,7 @@ impl ArgsAction {
                         UpdateOneof::Entry(msg) => msg.encode_to_vec(),
                     };
 
-                    let slot = match message {
+                    let slot = match message_inner {
                         UpdateOneof::Account(msg) => msg.slot,
                         UpdateOneof::Slot(msg) => msg.slot,
                         UpdateOneof::Transaction(msg) => msg.slot,
@@ -295,9 +296,12 @@ impl ArgsAction {
                         UpdateOneof::Entry(msg) => msg.slot,
                     };
 
-                    let hash = Sha256::digest(&payload);
+                    let hash = Sha256::digest(&hash_payload);
                     let key = format!("{slot}_{}", const_hex::encode(hash));
-                    let prom_kind = GprcMessageKind::from(message);
+                    let prom_kind = GprcMessageKind::from(message_inner);
+
+                    // Send the FULL message to Kafka
+                    let payload = message_full.encode_to_vec();
 
                     let record = FutureRecord::to(&config.kafka_topic)
                         .key(&key)

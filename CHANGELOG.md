@@ -23,7 +23,12 @@ The minor version will be incremented upon a breaking change and the patch versi
 - Fix deduplication failure when using multiple gRPC sources. Previously hashed the entire 
   SubscribeUpdate including variable metadata (created_at, filters), causing identical 
   messages from different sources to generate different hashes. Now hashes only the 
-  inner update_oneof content, ensuring consistent deduplication across sources.
+  inner update_oneof content for deduplication while preserving the full SubscribeUpdate 
+  message in Kafka, ensuring both consistent deduplication across sources and proper 
+  message format for consumers.
+- Fix kafka2grpc decode errors that occurred with initial dedup fix. The initial fix 
+  incorrectly sent only the inner message content to Kafka, breaking compatibility 
+  with consumers expecting full SubscribeUpdate messages.
 - Bump tokio to 1.45.1 (security advisory)
 - Bump openssl to 0.10.73 (security advisory)
 
