@@ -1,91 +1,72 @@
+---
 permissions:
   contents: write
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
 on:
   pull_request:
-    paths:
-      - '.github/workflows/release.yml'
+    paths: [.github/workflows/release.yml]
   push:
-    branches:
-      - 'master'
-      - 'v1.18'
-      - 'v2.0'
-      - 'v2.1'
-      - 'v2.2'
-    tags:
-      - 'v*'
+    branches: [master, v1.18, v2.0, v2.1, v2.2]
+    tags: [v*]
   workflow_dispatch:
-
 env:
   CARGO_TERM_COLOR: always
-
 jobs:
   release:
     strategy:
       matrix:
-        os: [ubuntu-20.04, ubuntu-22.04]
-    runs-on: ["${{ matrix.os }}"]
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ['${{ matrix.os }}']
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/cache@v4
         with:
           path: |
-              ~/.cargo/bin/
-              ~/.cargo/registry/index/
-              ~/.cargo/registry/cache/
-              ~/.cargo/git/db/
-              ./target
-          key: ${{ matrix.os }}-cargo-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('**/Cargo.lock') }}-v001
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ./target
+          key: ${{ matrix.os }}-cargo-${{ hashFiles('rust-toolchain.toml') }}-${{
+            hashFiles('**/Cargo.lock') }}-v001
           restore-keys: |
             ${{ matrix.os }}-cargo-${{ hashFiles('rust-toolchain.toml') }}
-
       - name: Set rust version
         run: |
           RUST_VERSION="$(grep -oP 'channel = "\K\d\.\d+\.\d+(?=")' rust-toolchain.toml)"
           echo "RUST_VERSION=$RUST_VERSION" >> "$GITHUB_ENV"
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
           components: clippy
-
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libsasl2-dev protobuf-compiler
-
       - name: Build release
         run: cargo build --release --bin grpc-kafka
-
       - name: Rename binaries for ubuntu20 release
         if: matrix.os == 'ubuntu-20.04'
         run: |
-          mv target/release/grpc-kafka target/release/grpc-kafka-20.04
-
+          mv target/release/grpc-kafka target/release/grpc-kafka-${{ matrix.os }}
       - name: Rename binaries for ubuntu22 release
         if: matrix.os == 'ubuntu-22.04'
         run: |
           mv target/release/grpc-kafka target/release/grpc-kafka-22.04
-
       - name: Deleteing directories to avoid upload conflict
         run: |
           rm -rf \
             target/release/grpc-kafka.d
-
       - uses: actions/upload-artifact@v4
         with:
           name: yellowstone-grpc-kafka-${{ github.sha }}-${{ matrix.os }}
           path: |
             target/release/grpc-kafka-*
-
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
+          files: |-
             target/release/grpc-kafka-*
