@@ -48,6 +48,7 @@ jobs:
       - name: Build release
         run: cargo build --release --bin grpc-kafka
       - name: Rename binaries for ubuntu20 release
+        if: matrix.os == 'ubuntu-20.04'
         run: |
           mv target/release/grpc-kafka target/release/grpc-kafka-${{ matrix.os }}
       - name: Rename binaries for ubuntu22 release
