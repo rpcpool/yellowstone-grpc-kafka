@@ -5056,7 +5056,7 @@ dependencies = [
 
 [[package]]
 name = "yellowstone-grpc-kafka"
-version = "4.0.1"
+version = "4.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
