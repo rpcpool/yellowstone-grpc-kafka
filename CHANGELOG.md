@@ -16,6 +16,12 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## [4.1.0] - 2025-08-12
+
+### Features
+
+- Bump yellowstone-grpc-client/proto to v8.0.0 to use Solana v2.3.
+
 ## [4.0.1] - 2025-06-27
 
 ### Fixes
