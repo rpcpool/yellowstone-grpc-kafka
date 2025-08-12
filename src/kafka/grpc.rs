@@ -25,14 +25,17 @@ use {
     },
     tonic_health::server::health_reporter,
     tracing::{error, info},
-    yellowstone_grpc_proto::{geyser::{SubscribeReplayInfoRequest, SubscribeReplayInfoResponse}, prelude::{
-        geyser_server::{Geyser, GeyserServer},
-        subscribe_update::UpdateOneof,
-        GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
-        GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse, GetVersionRequest,
-        GetVersionResponse, IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest,
-        PongResponse, SubscribeRequest, SubscribeUpdate, SubscribeUpdatePing,
-    }},
+    yellowstone_grpc_proto::{
+        geyser::{SubscribeReplayInfoRequest, SubscribeReplayInfoResponse},
+        prelude::{
+            geyser_server::{Geyser, GeyserServer},
+            subscribe_update::UpdateOneof,
+            GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
+            GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse, GetVersionRequest,
+            GetVersionResponse, IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest,
+            PongResponse, SubscribeRequest, SubscribeUpdate, SubscribeUpdatePing,
+        },
+    },
 };
 
 #[derive(Debug)]
