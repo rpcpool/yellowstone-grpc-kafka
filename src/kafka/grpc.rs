@@ -25,14 +25,14 @@ use {
     },
     tonic_health::server::health_reporter,
     tracing::{error, info},
-    yellowstone_grpc_proto::prelude::{
+    yellowstone_grpc_proto::{geyser::{SubscribeReplayInfoRequest, SubscribeReplayInfoResponse}, prelude::{
         geyser_server::{Geyser, GeyserServer},
         subscribe_update::UpdateOneof,
         GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
         GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse, GetVersionRequest,
         GetVersionResponse, IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest,
         PongResponse, SubscribeRequest, SubscribeUpdate, SubscribeUpdatePing,
-    },
+    }},
 };
 
 #[derive(Debug)]
@@ -248,5 +248,12 @@ impl Geyser for GrpcService {
         Ok(Response::new(GetVersionResponse {
             version: serde_json::to_string(&VERSION).unwrap(),
         }))
+    }
+
+    async fn subscribe_replay_info(
+        &self,
+        _request: Request<SubscribeReplayInfoRequest>,
+    ) -> Result<Response<SubscribeReplayInfoResponse>, Status> {
+        Err(Status::unimplemented("not implemented in kafka reader"))
     }
 }
