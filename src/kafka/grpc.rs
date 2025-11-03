@@ -55,12 +55,9 @@ impl GrpcService {
         BoxFuture<'static, Result<Result<(), TransportError>, JoinError>>,
     )> {
         // Bind service address
-        let incoming = TcpIncoming::new(
-            listen,
-            true,                          // tcp_nodelay
-            Some(Duration::from_secs(20)), // tcp_keepalive
-        )
-        .map_err(|error| anyhow::anyhow!(format!("{error:?}")))?;
+        let incoming = TcpIncoming::bind(listen)?
+            .with_nodelay(Some(true))
+            .with_keepalive(Some(Duration::from_secs(20)));
 
         // Messages to clients combined by commitment
         let (broadcast_tx, _) = broadcast::channel(channel_capacity);
@@ -81,7 +78,7 @@ impl GrpcService {
 
         let server = tokio::spawn(async move {
             // gRPC Health check service
-            let (mut health_reporter, health_service) = health_reporter();
+            let (health_reporter, health_service) = health_reporter();
             health_reporter.set_serving::<GeyserServer<Self>>().await;
 
             Server::builder()
