@@ -1,6 +1,6 @@
 [package]
 name = "yellowstone-grpc-kafka"
-version = "4.1.0"
+version = "4.2.0"
 authors = ["Triton One"]
 edition = "2021"
 description = "Yellowstone gRPC config/request transformers"
@@ -32,12 +32,13 @@ serde_yaml = "0.9.25"
 sha2 = { version = "0.10.7", optional = true }
 tokio = { version = "1.45.1", features = ["rt-multi-thread", "fs", "signal", "time", "macros"] }
 tokio-stream = { version = "0.1.11", optional = true }
-tonic = { version = "0.12.1", features = ["gzip", "zstd", "tls", "tls-roots"], optional = true }
-tonic-health = { version = "0.12.1", optional = true }
+rustls = { version = "0.23.35", features = ["aws-lc-rs"], default-features = false }
+tonic = { version = "0.14.2", optional = true, features = ["gzip", "zstd", "tls-native-roots"] }
+tonic-health = { version = "0.14.2", optional = true }
 tracing = { version = "0.1.37", optional = true }
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
-yellowstone-grpc-client = { version = "8.0.0", optional = true }
-yellowstone-grpc-proto = "8.0.0"
+yellowstone-grpc-client = { version = "10.1.1", optional = true }
+yellowstone-grpc-proto = "10.1.1"
 openssl = "^0.10.73"
 
 [target.'cfg(not(all(target_os = "macos", target_arch = "aarch64")))'.dependencies]

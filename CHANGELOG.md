@@ -16,6 +16,13 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## [4.2.0] - 2025-11-03
+
+### Features
+
+- Bump yellowstone-grpc-client/proto to v10.1.1 to use Solana v3.
+- Bump tonic to v0.14
+
 ## [4.1.0] - 2025-08-12
 
 ### Features

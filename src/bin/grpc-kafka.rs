@@ -56,6 +56,7 @@ enum ArgsAction {
 
 impl ArgsAction {
     async fn run(self, config: Config, kafka_config: ClientConfig) -> anyhow::Result<()> {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         let shutdown = create_shutdown()?;
         match self {
             ArgsAction::Dedup => {
