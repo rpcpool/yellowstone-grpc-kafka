@@ -591,6 +591,9 @@ impl ArgsAction {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Load .env file if it exists
+    dotenvy::dotenv().ok();
+    
     setup_tracing()?;
 
     // Parse args

@@ -33,9 +33,11 @@ Options:
 # run kafka locally
 docker-compose -f docker-kafka.yml up
 # create topic
-kafka_2.13-3.5.0/bin/kafka-topics.sh --bootstrap-server localhost:29092 --create --topic grpc1
+kafka_2.13-3.5.0/bin/kafka-topics.sh --bootstrap-server localhost:29092 --create --topic grpc1,
+using Kafka container command: docker exec yellowstone-grpc-kafka-kafka-1 kafka-topics --bootstrap-server localhost:9092 --create --topic grpc1
 # send messages from gRPC to Kafka
 cargo run --bin grpc-kafka -- --config config-kafka.json grpc2kafka
 # read messages from Kafka
 kafka_2.13-3.5.0/bin/kafka-console-consumer.sh --bootstrap-server localhost:29092 --topic grpc1
+using Kafka container command: docker exec yellowstone-grpc-kafka-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic grpc1 --from-beginning
 ```
