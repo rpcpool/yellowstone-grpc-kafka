@@ -39,3 +39,11 @@ cargo run --bin grpc-kafka -- --config config-kafka.json grpc2kafka
 # read messages from Kafka
 kafka_2.13-3.5.0/bin/kafka-console-consumer.sh --bootstrap-server localhost:29092 --topic grpc1
 ```
+
+## License
+
+Copyright (C) 2024, 2025 Triton One
+
+Licensed under the Affero General Public License v3.0 only (the "License");
+you may not use this file except in compliance with the License.
+See [LICENSE](./LICENSE) for more details.
