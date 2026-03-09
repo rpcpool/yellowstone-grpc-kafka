@@ -16,6 +16,13 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## [4.2.1] - 2026-03-09
+
+### Fixes
+
+- Bump prometheus to 0.14 (security advisory)
+- Update dependencies (security advisories)
+
 ## [4.2.0] - 2025-11-03
 
 ### Features

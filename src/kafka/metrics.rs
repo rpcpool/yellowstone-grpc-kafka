@@ -64,7 +64,7 @@ impl ClientContext for StatsContext {
             macro_rules! set_value {
                 ($name:expr, $value:expr) => {
                     KAFKA_STATS
-                        .with_label_values(&[&name, $name])
+                        .with_label_values(&[name.as_str(), $name])
                         .set($value as f64);
                 };
             }
